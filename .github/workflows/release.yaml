@@ -1,0 +1,30 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-github-app-token:
+    name: Generate GitHub App token
+    uses: ./.github/workflows/generate-github-app-token.yaml
+    secrets: inherit
+
+  publish-release:
+    name: Publish release
+    needs: generate-github-app-token
+    uses: glpi-project/plugin-release-workflows/.github/workflows/publish-release.yml@ee870668675e2e8355844048c5d5844f18556708 # v1.6.0
+    secrets:
+      github-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+
+  revoke-github-app-token:
+    name: Revoke GitHub App token
+    needs: [generate-github-app-token, publish-release]
+    if: always() && needs.generate-github-app-token.result == 'success'
+    uses: ./.github/workflows/revoke-github-app-token.yaml
+    secrets:
+      token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
