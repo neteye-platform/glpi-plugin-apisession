@@ -25,10 +25,13 @@ authenticated by the GLPI web session only.
 The plugin declares two routes, served by the GLPI kernel like any other GLPI page:
 GLPI starts the session from the cookie of the request.
 
-| Route | Answer |
-| --- | --- |
-| `GET /plugins/apisession/v2{path}` | The answer of `GET /api.php/v2{path}` of the GLPI API v2, query string included, computed as the user of the session. `401` without a session. Assets (`/Assets/...`) and any other information of the API v2 can be read. |
-| `GET /plugins/apisession/session` | An empty HTML page, `401` without a session. It is the landing page of a login started by another page, e.g. in a hidden iframe with `/?redirect=<url of this page>`. |
+- `GET /plugins/apisession/v2{path}`: the answer of `GET /api.php/v2{path}` of
+  the GLPI API v2, query string included, computed as the user of the session.
+  `401` without a session. Assets (`/Assets/...`) and any other information of
+  the API v2 can be read.
+- `GET /plugins/apisession/session`: an empty HTML page, `401` without a
+  session. It is the landing page of a login started by another page, e.g. in a
+  hidden iframe with `/?redirect=<url of this page>`.
 
 `/plugins/apisession/v2{path}` runs the router of the API v2 in the same request
 and authenticates it with the GLPI internal authentication
@@ -54,8 +57,8 @@ const response = await fetch('/glpi/plugins/apisession/v2/Assets/Computer?filter
 - **Same origin**: the plugin sends no CORS header, so the pages of other origins
   cannot read its answers.
 - **Same rights as the GLPI UI**: the API v2 applies the profile and the entities
-  that are active in the web session of the user, for assets as well as for any other
-  information of the API v2. The `Authorization`, `GLPI-Profile`, `GLPI-Entity`,
+  that are active in the web session of the user, for assets as well as for
+  any other information of the API v2. The `Authorization`, `GLPI-Profile`, `GLPI-Entity`,
   `GLPI-Entity-Recursive` and `GLPI-API-Version` headers are dropped, so a request
   cannot pick another identity, profile or entity.
 - **Only complete logins**: a user who has not finished the two-factor authentication
