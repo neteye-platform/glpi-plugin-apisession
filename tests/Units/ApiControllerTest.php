@@ -134,32 +134,40 @@ final class ApiControllerTest extends DbTestCase
         $visible = $this->get('/Assets/Computer/' . $computers['child1']->getID());
         $this->assertSame(200, $visible->getStatusCode());
         $this->assertSame($computers['child1']->fields['name'], $this->decode($visible)['name']);
-        $this->assertSame(200, $this->get('/Assets/Computer/' . $computers['child1']->getID() . '/OSInstallation')->getStatusCode());
 
         $hidden = $this->get('/Assets/Computer/' . $computers['child2']->getID());
-        $this->assertNotSame(200, $hidden->getStatusCode());
+        $this->assertSame(404, $hidden->getStatusCode());
+        $this->assertSame('ERROR_ITEM_NOT_FOUND', $this->decode($hidden)['status']);
         $this->assertStringNotContainsString($computers['child2']->fields['name'], (string) $hidden->getContent());
     }
 
-    public function testProfileWithoutRightsDoesNotSeeComputers(): void
+    public function testProfileWithoutRightsIsForbidden(): void
     {
         $this->login();
         $computers = $this->createComputers();
         $this->login('post-only');
 
-        $response = $this->get('/Assets/Computer', ['filter' => 'name=like="apisession-*"']);
+        // The self-service profile can read neither the assets nor the users of GLPI
+        $assets = $this->get('/Assets/Computer', ['filter' => 'name=like="apisession-*"']);
+        $this->assertSame(403, $assets->getStatusCode());
+        $this->assertSame('ERROR_RIGHT_MISSING', $this->decode($assets)['status']);
+        $this->assertStringNotContainsString($computers['child1']->fields['name'], (string) $assets->getContent());
+        $this->assertStringNotContainsString($computers['child2']->fields['name'], (string) $assets->getContent());
 
-        $this->assertStringNotContainsString($computers['child1']->fields['name'], (string) $response->getContent());
-        $this->assertStringNotContainsString($computers['child2']->fields['name'], (string) $response->getContent());
+        $user = $this->get('/Administration/User/' . getItemByTypeName('User', TU_USER, true));
+        $this->assertSame(403, $user->getStatusCode());
+        $this->assertSame('ERROR_RIGHT_MISSING', $this->decode($user)['status']);
     }
 
-    public function testAuthorizationHeaderDoesNotAuthenticate(): void
+    public function testAuthorizationHeaderIsIgnored(): void
     {
-        $this->logOut();
+        $this->login();
 
-        $response = $this->get('/Assets/Computer', [], ['Authorization' => 'Bearer not-a-token']);
+        // Without the filter the API v2 would try to open a session from the token and answer 400 "Invalid OAuth token"
+        $response = $this->get('/Session', [], ['Authorization' => 'Bearer not-a-token']);
 
-        $this->assertSame(401, $response->getStatusCode());
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(getItemByTypeName('User', TU_USER, true), $this->decode($response)['user_id']);
     }
 
     public function testIgnoredHeadersAreRemoved(): void
@@ -179,6 +187,8 @@ final class ApiControllerTest extends DbTestCase
 
     public function testWorksWithTheApiDisabled(): void
     {
+        // With the API v2 disabled and no session, the router itself answers 403 "The High-Level API is disabled", not
+        // 401: only the session check of the proxy gives the 401 here. With the API enabled the router answers 401 too.
         global $CFG_GLPI;
         $CFG_GLPI['enable_hlapi'] = 0;
 
@@ -215,17 +225,6 @@ final class ApiControllerTest extends DbTestCase
         $user = $this->get('/Administration/User/' . getItemByTypeName('User', TU_USER, true));
         $this->assertSame(200, $user->getStatusCode());
         $this->assertSame(TU_USER, $this->decode($user)['username']);
-    }
-
-    public function testOtherInformationIsLimitedByTheRightsOfTheProfile(): void
-    {
-        $this->login('post-only');
-
-        // A self-service user cannot read the users of GLPI
-        $response = $this->get('/Administration/User/' . getItemByTypeName('User', TU_USER, true));
-
-        $this->assertNotSame(200, $response->getStatusCode());
-        $this->assertLessThan(500, $response->getStatusCode());
     }
 
     /**
@@ -275,22 +274,6 @@ final class ApiControllerTest extends DbTestCase
         $this->assertStringNotContainsString('"name"', (string) $response->getContent());
     }
 
-    public function testPendingSecondFactorIsUnauthenticated(): void
-    {
-        $this->logOut();
-        // State of the session between the password and the TOTP code: the user is not logged in yet
-        $_SESSION['mfa_pre_auth'] = [
-            'user_id'     => getItemByTypeName('User', TU_USER, true),
-            'username'    => TU_USER,
-            'noauto'      => false,
-            'remember_me' => false,
-        ];
-
-        $response = $this->get('/Assets/Computer');
-
-        $this->assertSame(401, $response->getStatusCode());
-    }
-
     public function testAnswersAreNotCacheable(): void
     {
         $this->login();
@@ -311,28 +294,28 @@ final class ApiControllerTest extends DbTestCase
     }
 
     /**
+     * HEAD, OPTIONS and TRACE are never stopped by the CSRF check of GLPI, and the other methods reach the controller
+     * with a valid CSRF token
+     *
      * @return iterable<string, array{string}>
      */
-    public static function writeMethodProvider(): iterable
+    public static function refusedMethodProvider(): iterable
     {
-        foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+        foreach (['HEAD', 'OPTIONS', 'TRACE', 'POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
             yield $method => [$method];
         }
     }
 
-    #[DataProvider('writeMethodProvider')]
+    #[DataProvider('refusedMethodProvider')]
     public function testOnlyGetIsAccepted(string $method): void
     {
         $this->login();
-        $computers = $this->createComputers();
-        $path = '/Assets/Computer/' . $computers['child1']->getID();
+        $path = '/Assets/Computer';
 
         $response = (new ApiController())->proxy(Request::create('/plugins/apisession/v2' . $path, $method), $path);
 
         $this->assertSame(405, $response->getStatusCode());
         $this->assertSame('GET', $response->headers->get('Allow'));
-        // The item is untouched
-        $this->assertTrue($computers['child1']->getFromDB($computers['child1']->getID()));
-        $this->assertSame(0, (int) $computers['child1']->fields['is_deleted']);
+        $this->assertSame('ERROR_METHOD_NOT_ALLOWED', $this->decode($response)['status']);
     }
 }

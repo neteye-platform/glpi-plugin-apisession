@@ -25,9 +25,3 @@ function plugin_apisession_check_config($verbose = false)
 {
     return true;
 }
-
-function plugin_init_apisession()
-{
-    global $PLUGIN_HOOKS;
-    $PLUGIN_HOOKS['csrf_compliant']['apisession'] = true;
-}
