@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-ci-matrix:
+    name: Generate CI matrix
+    uses: glpi-project/plugin-ci-workflows/.github/workflows/generate-ci-matrix.yml@8f514e933b87372ee57c57f2ed484956c7f5cb8e # v1.30.4
+    with:
+      glpi-version: "11.0.x"
+
+  tests:
+    name: "GLPI ${{ matrix.glpi-version }} - php:${{ matrix.php-version }} - ${{ matrix.db-image }}"
+    needs: generate-ci-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.generate-ci-matrix.outputs.matrix) }}
+    uses: glpi-project/plugin-ci-workflows/.github/workflows/continuous-integration.yml@8f514e933b87372ee57c57f2ed484956c7f5cb8e # v1.30.4
+    with:
+      plugin-key: apisession
+      glpi-version: ${{ matrix.glpi-version }}
+      php-version: ${{ matrix.php-version }}
+      db-image: ${{ matrix.db-image }}
+
+  tests-status:
+    name: Tests Status
+    needs: [generate-ci-matrix, tests]
+    if: always()
+    permissions:
+      contents: none
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tests job results
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [ "$FAILED" = "true" ]; then
+            echo "::error::A tests job failed or was cancelled"
+            exit 1
+          fi

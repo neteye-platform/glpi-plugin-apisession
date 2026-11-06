@@ -1,0 +1,99 @@
+# Reusable workflow: generate a GitHub App token with `contents: write` permission
+# on this repository, to be passed to reusable workflows that only accept a token
+# as secret (e.g. the official GLPI release workflows). No inputs.
+#
+# Trigger it from a topic workflow, and always revoke the token at the end:
+#
+#   jobs:
+#     generate-github-app-token:
+#       uses: ./.github/workflows/generate-github-app-token.yaml
+#       secrets: inherit
+#     my-job:
+#       needs: generate-github-app-token
+#       uses: owner/repo/.github/workflows/my-workflow.yaml@sha
+#       secrets:
+#         github-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+#     revoke-github-app-token:
+#       needs: [generate-github-app-token, my-job]
+#       if: always() && needs.generate-github-app-token.result == 'success'
+#       uses: ./.github/workflows/revoke-github-app-token.yaml
+#       secrets:
+#         token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+#
+# Output:
+#   token: the token encoded as a JSON string. It must only be decoded with
+#          `fromJSON()` directly in the `secrets` of a reusable workflow call,
+#          so that it is masked in the logs of the called workflow. Never use
+#          it in `env`, `with` or `run`, where it would be logged in clear.
+#
+# Why the encoding: the runner drops job outputs containing a masked value, so
+#   the token is passed with every character escaped as \uXXXX. The encoded
+#   value is never logged, and the job refuses to run with step debug logging
+#   or runner diagnostic logging enabled, since they could print it.
+#
+# 'secrets: inherit' is required: the workflow uses the NETEYE_APP_ID variable
+#   and NETEYE_APP_PRIVATE_KEY secret of the neteye steward GitHub App, and the
+#   ACTIONS_RUNNER_DEBUG secret, if any, to detect runner diagnostic logging.
+
+name: Generate GitHub App token
+
+on:
+  workflow_call:
+    secrets:
+      NETEYE_APP_PRIVATE_KEY:
+        required: true
+    outputs:
+      token:
+        description: "The GitHub App token, encoded as a JSON string to be decoded with fromJSON()"
+        value: ${{ jobs.generate-github-app-token.outputs.token }}
+
+permissions: {}
+
+jobs:
+  generate-github-app-token:
+    name: Generate GitHub App token
+    runs-on: ubuntu-latest
+    env:
+      # Secrets cannot be referenced directly in `if` conditions. ACTIONS_RUNNER_DEBUG is a reserved
+      # name that cannot be declared in `workflow_call`: it is received through `secrets: inherit`.
+      ACTIONS_RUNNER_DEBUG_SECRET: ${{ secrets.ACTIONS_RUNNER_DEBUG }}
+    outputs:
+      token: ${{ steps.encode-token.outputs.token }}
+    steps:
+      # Step debug logging prints the job outputs, and runner diagnostic logs may print evaluated expressions:
+      # both would expose the encoded token, which is not masked.
+      - name: Refuse to run with debug logging enabled
+        if: >-
+          runner.debug == '1' ||
+          vars.ACTIONS_RUNNER_DEBUG == 'true' ||
+          env.ACTIONS_RUNNER_DEBUG_SECRET == 'true'
+        run: |
+          echo "::error::Debug logging is enabled: refusing to generate the token, since it would be exposed in the logs."
+          exit 1
+
+      - name: Generate GitHub App token
+        id: generate-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.NETEYE_APP_ID }}
+          private-key: ${{ secrets.NETEYE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          # The token is used by the next jobs: it is revoked by the revoke-github-app-token workflow.
+          skip-token-revoke: true
+
+      - name: Encode token
+        id: encode-token
+        env:
+          TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # The token is passed through stdin, never as a command argument.
+          encoded="$(printf '%s' "$TOKEN" | od -An -v -tx1 | tr -d ' \n' | sed 's/../\\u00&/g')"
+          echo "token=\"$encoded\"" >> "$GITHUB_OUTPUT"
+
+      - name: Revoke GitHub App token on failure
+        if: failure() && steps.generate-token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: gh api --method DELETE /installation/token

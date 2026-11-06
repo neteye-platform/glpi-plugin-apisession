@@ -1,0 +1,32 @@
+name: Automatically tag new version
+
+on:
+  push:
+    branches:
+      - "main"
+      - "maint-*"
+
+permissions:
+  contents: read
+
+jobs:
+  generate-github-app-token:
+    name: Generate GitHub App token
+    uses: ./.github/workflows/generate-github-app-token.yaml
+    secrets: inherit
+
+  automatically-tag-new-version:
+    name: Automatically tag new version
+    needs: generate-github-app-token
+    uses: glpi-project/plugin-release-workflows/.github/workflows/auto-tag-new-version.yml@ee870668675e2e8355844048c5d5844f18556708 # v1.6.0
+    secrets:
+      # A GitHub App token is required so that the tag push triggers the release workflow.
+      github-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+
+  revoke-github-app-token:
+    name: Revoke GitHub App token
+    needs: [generate-github-app-token, automatically-tag-new-version]
+    if: always() && needs.generate-github-app-token.result == 'success'
+    uses: ./.github/workflows/revoke-github-app-token.yaml
+    secrets:
+      token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}

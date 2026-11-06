@@ -1,0 +1,24 @@
+{
+    "name": "neteye/apisession",
+    "description": "GLPI plugin that gives read-only access to the GLPI API v2 with the GLPI web session of the user.",
+    "type": "glpi-plugin",
+    "license": [
+        "MIT",
+        "Apache-2.0"
+    ],
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "glpi-project/tools": "^0.8.3"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "GlpiPlugin\\Apisession\\Tests\\": "tests/"
+        }
+    }
+}
