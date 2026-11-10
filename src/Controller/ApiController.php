@@ -2,17 +2,25 @@
 
 namespace GlpiPlugin\Apisession\Controller;
 
+use Glpi\Api\HL\Controller\AbstractController as ApiAbstractController;
 use Glpi\Api\HL\Middleware\InternalAuthMiddleware;
 use Glpi\Api\HL\Router;
+use Glpi\Api\HL\StreamedResponseWrapper;
 use Glpi\Controller\AbstractController;
+use Glpi\Error\ErrorHandler;
 use Glpi\Http\Firewall;
+use Glpi\Http\JSONResponse as ApiJsonResponse;
 use Glpi\Http\Request;
+use Glpi\Http\Response;
 use Glpi\Security\Attribute\SecurityStrategy;
+use InvalidArgumentException;
 use Session;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\Routing\Attribute\Route;
+use Throwable;
 
 /**
  * Read-only access to the GLPI API v2 (High-Level API) with the GLPI web session of the user, i.e. its cookie.
@@ -66,9 +74,9 @@ final class ApiController extends AbstractController
         }
 
         $headers = self::filterHeaders($request->headers->all());
-        $headers['GLPI-API-Version'] = Router::API_VERSION;
+        $headers['GLPI-API-Version'] = Router::normalizeAPIVersion('2');
 
-        $query = $request->query->all();
+        $query = self::filterParameters($request->query->all());
         $api_request = (new Request('GET', '/' . trim($path, '/'), $headers))->withQueryParams($query);
         // The router reads the parameters (e.g. the RSQL filter) from the request parameters, not from the query
         foreach ($query as $name => $value) {
@@ -80,7 +88,35 @@ final class ApiController extends AbstractController
         // the router keeps when the API v2 is disabled in the GLPI configuration.
         $router->registerAuthMiddleware(new InternalAuthMiddleware(), PHP_INT_MAX);
 
-        $response = $router->handleRequest($api_request);
+        return self::dispatch(static fn(): Response => $router->handleRequest($api_request));
+    }
+
+    public static function dispatch(callable $handle): SymfonyResponse
+    {
+        $output_buffer_level = ob_get_level();
+        try {
+            $response = $handle();
+        } catch (HttpExceptionInterface $e) {
+            self::cleanOutputBuffers($output_buffer_level);
+            $response = self::httpExceptionResponse($e);
+        } catch (InvalidArgumentException $e) {
+            self::cleanOutputBuffers($output_buffer_level);
+            $response = new ApiJsonResponse(
+                ApiAbstractController::getErrorResponseBody(
+                    ApiAbstractController::ERROR_INVALID_PARAMETER,
+                    $e->getMessage()
+                ),
+                400
+            );
+        } catch (Throwable $e) {
+            self::cleanOutputBuffers($output_buffer_level);
+            ErrorHandler::logCaughtException($e);
+            $response = new ApiJsonResponse(null, 500);
+        }
+
+        if ($response instanceof StreamedResponseWrapper) {
+            return self::withPrivateCacheHeaders($response->getSymfonyResponse());
+        }
 
         return self::withPrivateCacheHeaders(new SymfonyResponse(
             (string) $response->getBody(),
@@ -97,6 +133,46 @@ final class ApiController extends AbstractController
     public static function filterHeaders(array $headers): array
     {
         return array_diff_key($headers, array_flip(self::IGNORED_HEADERS));
+    }
+
+    private static function httpExceptionResponse(HttpExceptionInterface $exception): Response
+    {
+        $status = $exception->getStatusCode();
+        if ($status >= 500) {
+            ErrorHandler::logCaughtException($exception);
+        }
+
+        return match ($status) {
+            403 => ApiAbstractController::getAccessDeniedErrorResponse(),
+            404 => ApiAbstractController::getNotFoundErrorResponse(),
+            default => new ApiJsonResponse(
+                $status >= 500
+                    ? null
+                    : ApiAbstractController::getErrorResponseBody(ApiAbstractController::ERROR_GENERIC, 'Invalid request'),
+                $status
+            ),
+        };
+    }
+
+    private static function cleanOutputBuffers(int $level): void
+    {
+        while (ob_get_level() > $level) {
+            ob_end_clean();
+        }
+    }
+
+    public static function filterParameters(array $parameters): array
+    {
+        return array_filter(
+            $parameters,
+            static fn(int|string $name): bool => !self::isReservedParameter((string) $name),
+            ARRAY_FILTER_USE_KEY
+        );
+    }
+
+    public static function isReservedParameter(string $name): bool
+    {
+        return str_starts_with($name, '_');
     }
 
     /**
