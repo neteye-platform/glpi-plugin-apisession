@@ -383,16 +383,21 @@ final class ApiControllerTest extends DbTestCase
 
     public function testDocumentWithoutFileIsA404Json(): void
     {
+        global $DB;
+
         $this->login();
-        $prefix = uniqid('', true);
-        $filename = 'apisession.txt';
-        file_put_contents(GLPI_TMP_DIR . '/' . $prefix . $filename, 'apisession-' . $this->getUniqueString());
-        $document = $this->createItem(Document::class, [
-            'name'             => 'apisession-' . $this->getUniqueString(),
-            '_filename'        => [$prefix . $filename],
-            '_prefix_filename' => [$prefix],
-        ]);
-        unlink(GLPI_DOC_DIR . '/' . $document->fields['filepath']);
+        $document = $this->createItem(Document::class, ['name' => 'apisession-' . $this->getUniqueString()]);
+        $DB->update(
+            Document::getTable(),
+            [
+                'filename' => 'apisession.txt',
+                'filepath' => 'TXT/apisession/' . $this->getUniqueString() . '.TXT',
+                'mime'     => 'text/plain',
+            ],
+            ['id' => $document->getID()]
+        );
+        $this->assertTrue($document->getFromDB($document->getID()));
+        $this->assertFileDoesNotExist(GLPI_DOC_DIR . '/' . $document->fields['filepath']);
 
         $response = $this->get('/Management/Document/' . $document->getID() . '/Download');
 
