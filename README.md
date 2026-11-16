@@ -1,6 +1,6 @@
 # API Session
 
-[![GLPI](https://img.shields.io/badge/GLPI-%3E%3D%2011.0.0-blue.svg)](https://glpi-project.org/)
+[![GLPI](https://img.shields.io/badge/GLPI-%3E%3D%2011.0.0%2C%20%3C%2011.1.0-blue.svg)](https://glpi-project.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE-MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE-APACHE)
 
@@ -28,7 +28,8 @@ GLPI starts the session from the cookie of the request.
 - `GET /plugins/apisession/v2{path}`: the answer of `GET /api.php/v2{path}` of
   the GLPI API v2, query string included, computed as the user of the session.
   `401` without a session. Assets (`/Assets/...`) and any other information of
-  the API v2 can be read.
+  the API v2 can be read. Downloads (`/Management/Document/{id}/Download`,
+  `/Administration/User/{id}/Picture`) are streamed with the content of the file.
 - `GET /plugins/apisession/session`: an empty HTML page, `401` without a
   session. It is the landing page of a login started by another page, e.g. in a
   hidden iframe with `/?redirect=<url of this page>`.
@@ -36,7 +37,9 @@ GLPI starts the session from the cookie of the request.
 `/plugins/apisession/v2{path}` runs the router of the API v2 in the same request
 and authenticates it with the GLPI internal authentication
 (`Glpi\Api\HL\Middleware\InternalAuthMiddleware`), which accepts the user of the
-current session.
+current session. As with `/api.php`, an exception of the API v2 becomes a JSON
+error: `400` for an invalid parameter, `500` otherwise. An HTTP exception keeps
+its status, e.g. `404` for a document whose file is missing on disk.
 
 Example, from a page of the same origin:
 
@@ -60,7 +63,14 @@ const response = await fetch('/glpi/plugins/apisession/v2/Assets/Computer?filter
   that are active in the web session of the user, for assets as well as for
   any other information of the API v2. The `Authorization`, `GLPI-Profile`, `GLPI-Entity`,
   `GLPI-Entity-Recursive` and `GLPI-API-Version` headers are dropped, so a request
-  cannot pick another identity, profile or entity.
+  cannot pick another identity, profile or entity. The API version is always the
+  latest 2.x of the GLPI installation.
+- **No caller scope**: a request cannot set `_mandatory_filter`, the scope that
+  restricts a sub-resource (`/Assets/Computer/{id}/OSInstallation`) to its parent
+  item. The plugin does not pass the query parameters starting with `_` to the
+  router, and the router does not take `_mandatory_filter` from the query
+  string. The router still reads the other `_` parameters from the query string
+  itself, as with `/api.php`.
 - **Only complete logins**: a user who has not finished the two-factor authentication
   has no session user yet and gets `401`; a user who must change the password gets
   `403`.
@@ -72,7 +82,7 @@ const response = await fetch('/glpi/plugins/apisession/v2/Assets/Computer?filter
 
 ## Requirements
 
-- **GLPI >= 11.0.0**
+- **GLPI >= 11.0.0, < 11.1.0**
 
 ## Installation
 
