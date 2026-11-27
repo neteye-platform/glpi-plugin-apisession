@@ -11,7 +11,7 @@ permissions:
 jobs:
   generate-ci-matrix:
     name: Generate CI matrix
-    uses: glpi-project/plugin-ci-workflows/.github/workflows/generate-ci-matrix.yml@8f514e933b87372ee57c57f2ed484956c7f5cb8e # v1.30.4
+    uses: glpi-project/plugin-ci-workflows/.github/workflows/generate-ci-matrix.yml@afbd101a3ae6bd6ef65e531fb7d6f0e917a22c5b # v1.31.0
     with:
       glpi-version: "11.0.x"
 
@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-ci-matrix.outputs.matrix) }}
-    uses: glpi-project/plugin-ci-workflows/.github/workflows/continuous-integration.yml@8f514e933b87372ee57c57f2ed484956c7f5cb8e # v1.30.4
+    uses: glpi-project/plugin-ci-workflows/.github/workflows/continuous-integration.yml@afbd101a3ae6bd6ef65e531fb7d6f0e917a22c5b # v1.31.0
     with:
       plugin-key: apisession
       glpi-version: ${{ matrix.glpi-version }}
