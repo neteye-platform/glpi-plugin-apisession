@@ -1,6 +1,6 @@
 # Reusable workflow: generate a GitHub App token with `contents: write` permission
-# on this repository, to be passed to reusable workflows that only accept a token
-# as secret (e.g. the official GLPI release workflows). No inputs.
+# on this repository, to be passed to external reusable workflows (e.g. the official
+# GLPI release workflows) without sharing the App private key with them. No inputs.
 #
 # Trigger it from a topic workflow, and always revoke the token at the end:
 #
@@ -12,7 +12,7 @@
 #       needs: generate-github-app-token
 #       uses: owner/repo/.github/workflows/my-workflow.yaml@sha
 #       secrets:
-#         github-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+#         bot-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
 #     revoke-github-app-token:
 #       needs: [generate-github-app-token, my-job]
 #       if: always() && needs.generate-github-app-token.result == 'success'
