@@ -1,6 +1,6 @@
 # Reusable workflow: generate a GitHub App token with `contents: write` permission
-# on this repository, to be passed to reusable workflows that only accept a token
-# as secret (e.g. the official GLPI release workflows). No inputs.
+# on this repository, to be passed to external reusable workflows (e.g. the official
+# GLPI release workflows) without sharing the App private key with them. No inputs.
 #
 # Trigger it from a topic workflow, and always revoke the token at the end:
 #
@@ -12,7 +12,7 @@
 #       needs: generate-github-app-token
 #       uses: owner/repo/.github/workflows/my-workflow.yaml@sha
 #       secrets:
-#         github-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
+#         bot-token: ${{ fromJSON(needs.generate-github-app-token.outputs.token) }}
 #     revoke-github-app-token:
 #       needs: [generate-github-app-token, my-job]
 #       if: always() && needs.generate-github-app-token.result == 'success'
@@ -73,7 +73,7 @@ jobs:
 
       - name: Generate GitHub App token
         id: generate-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
           app-id: ${{ vars.NETEYE_APP_ID }}
           private-key: ${{ secrets.NETEYE_APP_PRIVATE_KEY }}
